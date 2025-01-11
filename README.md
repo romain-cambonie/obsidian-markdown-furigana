@@ -1,3 +1,23 @@
+## Update
+
+- Removed processing in source and editing mode.
+- Simple hack to replace '{' '|' '}' IME fullwidth when postprocessing by { | and } not to have to switch keyboard when typing with the IME.
+- Eg:  ｛編｜へん} typed fully with the japanese (mozc) will work.
+
+### Setup
+
+- Install dependencies with npm or yarn
+- Build the project with the build command => main.js
+
+#### Obsidian side
+- Activate the normal furigana plugin
+  ![img.png](img.png)
+- Open the plugin location (your_vault/.obsidian/plugins/obsidian-markdown-furigana))
+- Replace the main.js by the one produced by the 'build' command
+- Toggle the plugin and reload obsidian (optional)
+
+# Source Project
+
 ## Markdown Furigana Plugin (Obsidian)
 
 Simple markdown to furigana rendering plugin for displaying Japanese text with [furigana](https://en.wikipedia.org/wiki/Furigana) in Obsidian (https://obsidian.md).

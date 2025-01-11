@@ -1,6 +1,4 @@
 import { Plugin, MarkdownPostProcessor, MarkdownPostProcessorContext } from 'obsidian'
-import { RangeSetBuilder } from "@codemirror/state"
-import { ViewPlugin, WidgetType, EditorView, ViewUpdate, Decoration, DecorationSet } from '@codemirror/view'
 
 // Regular Expression for {{kanji|kana|kana|...}} format
 const REGEXP = /{((?:[\u2E80-\uA4CF\uFF00-\uFFEF])+)((?:\\?\|[^ -\/{-~:-@\[-`]*)+)}/gm;
@@ -9,27 +7,38 @@ const REGEXP = /{((?:[\u2E80-\uA4CF\uFF00-\uFFEF])+)((?:\\?\|[^ -\/{-~:-@\[-`]*)
 const TAGS = 'p, h1, h2, h3, h4, h5, h6, ol, ul, table'
 
 const convertFurigana = (element: Text): Node => {
-  const matches = Array.from(element.textContent.matchAll(REGEXP))
-  let lastNode = element
-  for (const match of matches) {
-    const furi = match[2].split('|').slice(1) // First Element will be empty
-    const kanji = furi.length === 1 ? [match[1]] : match[1].split('')
-    if (kanji.length === furi.length) {
-      // Number of Characters in first section must be equal to number of furigana sections (unless only one furigana section)
-      const rubyNode = document.createElement('ruby')
-      rubyNode.addClass('furi')
-      kanji.forEach((k, i) => {
-        rubyNode.appendText(k)
-        rubyNode.createEl('rt', { text: furi[i] })
-      })
-      let offset = lastNode.textContent.indexOf(match[0])
-      const nodeToReplace = lastNode.splitText(offset)
-      lastNode = nodeToReplace.splitText(match[0].length)
-      nodeToReplace.replaceWith(rubyNode)
+  // Normalize the text content (replace Japanese full-width characters with standard ones)
+  const normalizedText = element.textContent
+    ?.replace(/｛/g, '{')
+    .replace(/｝/g, '}')
+    .replace(/｜/g, '|') || '';
+
+  // Replace matches in the text with ruby elements
+  const updatedHTML = normalizedText.replace(REGEXP, (_, kanji, furigana) => {
+    const furiParts = furigana.split('|').slice(1); // Remove the leading separator
+    const kanjiParts = furiParts.length === 1 ? [kanji] : kanji.split('');
+
+    if (kanjiParts.length !== furiParts.length) {
+      // If the number of kanji and furigana parts don't match, return the original match
+      return `{${kanji}|${furigana}}`;
     }
-  }
-  return element
-}
+
+    // Construct the ruby element as an HTML string
+    const rubyContent = kanjiParts
+      .map((char, i) => `${char}<rt>${furiParts[i]}</rt>`)
+      .join('');
+    return `<ruby class="furi">${rubyContent}</ruby>`;
+  });
+
+  // Replace the original text node with an HTML element
+  const parentNode = element.parentNode!;
+  const span = document.createElement('span');
+  span.innerHTML = updatedHTML;
+  parentNode.replaceChild(span, element);
+
+  return span;
+};
+
 
 export default class MarkdownFurigana extends Plugin {
   public postprocessor: MarkdownPostProcessor = (el: HTMLElement, ctx: MarkdownPostProcessorContext) => {
@@ -60,92 +69,9 @@ export default class MarkdownFurigana extends Plugin {
   async onload() {
     console.log('loading Markdown Furigana plugin')
     this.registerMarkdownPostProcessor(this.postprocessor)
-    this.registerEditorExtension(viewPlugin)
   }
 
   onunload() {
     console.log('unloading Markdown Furigana plugin')
   }
 }
-
-class RubyWidget extends WidgetType {
-  constructor(readonly kanji: string[], readonly furi: string[]) {
-    super()
-  }
-
-  toDOM(view: EditorView): HTMLElement {
-    let ruby = document.createElement("ruby")
-    this.kanji.forEach((k, i) => {
-      ruby.appendText(k)
-      ruby.createEl("rt", { text: this.furi[i] })
-    })
-    return ruby
-  }
-}
-
-const viewPlugin = ViewPlugin.fromClass(class {
-  decorations: DecorationSet;
-
-  constructor(view: EditorView) {
-    this.decorations = this.buildDecorations(view);
-  }
-
-  update(update: ViewUpdate) {
-    if (
-      update.docChanged ||
-      update.viewportChanged ||
-      update.selectionSet
-    ) {
-      this.decorations = this.buildDecorations(update.view);
-    }
-  }
-
-  destroy() { }
-
-  buildDecorations(view: EditorView): DecorationSet {
-    let builder = new RangeSetBuilder<Decoration>();
-    let lines: number[] = [];
-    if (view.state.doc.length > 0) {
-      lines = Array.from(
-        { length: view.state.doc.lines },
-        (_, i) => i + 1,
-      );
-    }
-
-    const currentSelections = [...view.state.selection.ranges];
-
-    for (let n of lines) {
-      const line = view.state.doc.line(n);
-      const startOfLine = line.from;
-      const endOfLine = line.to;
-
-      let currentLine = false;
-
-      currentSelections.forEach((r) => {
-        if (r.to >= startOfLine && r.from <= endOfLine) {
-          currentLine = true;
-          return;
-        }
-      });
-      let matches = Array.from(line.text.matchAll(REGEXP))
-      for (const match of matches) {
-        let add = true
-        const furi = match[2].split("|").slice(1)
-        const kanji = furi.length === 1 ? [match[1]] : match[1].split("")
-        const from = match.index != undefined ? match.index + line.from : -1
-        const to = from + match[0].length
-        currentSelections.forEach((r) => {
-          if (r.to >= from && r.from <= to) {
-            add = false
-          }
-        })
-        if (add) {
-          builder.add(from, to, Decoration.widget({ widget: new RubyWidget(kanji, furi) }))
-        }
-      }
-    }
-    return builder.finish();
-  }
-}, {
-  decorations: (v) => v.decorations,
-})
